@@ -1,0 +1,58 @@
+
+-- declare start and end dates for the analysis period
+DECLARE start_date DATE DEFAULT '2020-11-01';
+DECLARE end_date DATE DEFAULT '2021-01-31';
+
+-- create a dataset to select relevant event data for the analysis
+WITH dataset AS (
+  SELECT 
+      user_pseudo_id,  -- user identifier for each event
+      event_name,  -- the name of the event (e.g., page view, add to cart)
+      PARSE_DATE('%Y%m%d', event_date) AS event_date,  -- converts the event date into DATE format
+      traffic_source.medium AS traffic_medium  -- the medium of the traffic (e.g., organic, paid)
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  WHERE event_name IN ('page_view', 'view_item', 'add_to_cart', 'begin_checkout', 'purchase')  -- filter for relevant events
+    AND _TABLE_SUFFIX BETWEEN FORMAT_DATE('%Y%m%d', start_date) AND FORMAT_DATE('%Y%m%d', end_date)  -- filter by the date range
+),
+
+-- create a funnel with counts for each event for each user and traffic medium
+funnel AS (
+  SELECT
+      user_pseudo_id,  -- user identifier
+      traffic_medium,  -- traffic medium for each user
+      countif(event_name='page_view') AS page_view,  -- count of page views
+      countif(event_name='view_item') AS view_item,  -- count of view item events
+      countif(event_name='add_to_cart') AS add_to_cart,  -- count of add to cart events
+      countif(event_name='begin_checkout') AS begin_checkout,  -- count of begin checkout events
+      countif(event_name='purchase') AS purchase  -- count of purchase events
+  FROM dataset
+  GROUP BY user_pseudo_id, traffic_medium  -- group by user and traffic medium
+),
+
+-- aggregate the funnel data by traffic medium
+aggregated_funnel AS (
+  SELECT
+      traffic_medium,  -- traffic medium
+      COUNT(DISTINCT user_pseudo_id) AS total_user_count,  -- total number of unique users
+      SUM(page_view) AS total_page_view_count,  -- total number of page views
+      SUM(view_item) AS total_view_item_count,  -- total number of view item events
+      SUM(add_to_cart) AS total_add_to_cart_count,  -- total number of add to cart events
+      SUM(begin_checkout) AS total_begin_checkout_count,  -- total number of begin checkout events
+      SUM(purchase) AS total_purchase_count  -- total number of purchase events
+  FROM funnel
+  GROUP BY traffic_medium  -- group by traffic medium
+)
+
+-- select and calculate the relevant metrics for the final output
+SELECT
+    traffic_medium,  -- traffic medium for the aggregated data
+    total_user_count,  -- total number of users
+    total_view_item_count,  -- total number of view item events
+    total_add_to_cart_count,  -- total number of add to cart events
+    total_begin_checkout_count,  -- total number of begin checkout events
+    total_purchase_count,  -- total number of purchases
+    ROUND(SAFE_DIVIDE((total_add_to_cart_count - total_purchase_count), total_add_to_cart_count) * 100, 2) AS cart_abandonment_rate,  -- calculate cart abandonment rate
+    ROUND(SAFE_DIVIDE((total_begin_checkout_count - total_purchase_count), total_begin_checkout_count) * 100, 2) AS checkout_abandonment_rate,  -- calculate checkout abandonment rate
+    ROUND(SAFE_DIVIDE(total_purchase_count, total_user_count) * 100, 2) AS conversion_rate  -- calculate conversion rate
+FROM aggregated_funnel
+ORDER BY total_user_count DESC, conversion_rate ASC;  -- order by the number of users and conversion rate;
