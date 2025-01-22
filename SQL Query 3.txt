@@ -1,0 +1,33 @@
+
+-- declare start date and end date for the date range filter
+declare start_date date default '2020-11-01';  
+declare end_date date default '2021-01-31';
+
+-- select device category and aggregate data for user, purchase, quantity, and revenue
+select  
+     -- category of the device used by the users
+     device.category as device_category,  
+     
+     -- count of distinct users in the specified date range
+     count(distinct user_pseudo_id) as total_user,  
+     
+     -- count of purchases that occurred during the period
+     countif(event_name='purchase') as total_purchase,  
+     
+     -- sum of the total number of items purchased in the transaction, only for 'purchase' events
+     sum(if (event_name='purchase', ecommerce.total_item_quantity, null)) as total_item_quantity,  
+     
+     -- sum of revenue generated from all purchases, only for 'purchase' events
+     sum(if (event_name='purchase', ecommerce.purchase_revenue, null)) as total_purchase_revenue,   
+     
+     -- calculate conversion rate by dividing purchases by unique users, and multiplying by 100 to get percentage
+     round(safe_divide(countif(event_name='purchase'), count(distinct user_pseudo_id)) * 100, 2) as conversion_rate  
+     
+-- specify the dataset being queried from Google BigQuery sample eCommerce events
+from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`  
+
+-- filter data between the start date and end date
+where parse_date('%Y%m%d', event_date) between start_date and end_date  
+
+-- group the results by the device category
+group by device_category;
