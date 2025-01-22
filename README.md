@@ -28,3 +28,5 @@ iii) Verify Data Export: Ensure that data is streaming correctly from GA4 to Big
 
 This integration forms the foundation for advanced data analysis and actionable insights.
 
+### Let's Start SQL Query With Bigquery to get Better Actionable Insights:
+
