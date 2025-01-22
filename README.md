@@ -281,9 +281,248 @@ II) Desktop users generate the highest revenue ($208,815) but have a slightly lo
 III) Tablet users have the lowest conversion rate (1.78%) and revenue ($6,582), suggesting potential challenges in usability or relevance. Focused improvements for tablet interfaces could help unlock untapped potential in this segment.
 
 
+### SQL Query 4: ✅  Device Category Based: Average Order Value , Cart and Checkout Abandonment Analysis
+
+This query helps to analyze key ecommerce metrics, such as cart abandonment rate, checkout abandonment rate, and average order value by device category. It aggregates data from the GA4 eCommerce dataset to provide insights on how users engage with the shopping funnel from page view to purchase.
+
+#### SQL Code:
+```
+-- Declare start and end date variables for the desired analysis period
+declare start_date date default '2020-11-01';  
+declare end_date date default '2021-01-31';
+
+-- Creating a common table expression (CTE) to aggregate data
+with flat_data as (
+  SELECT 
+    -- Device category: distinguishes the device type (e.g., mobile, tablet, desktop)
+    device.category as device_category,
+    
+    -- Count distinct users who made a purchase event
+    count(distinct if(event_name='purchase', user_pseudo_id, null)) as purchase_users,
+    
+    -- Sum of purchase revenue for the 'purchase' event
+    sum(if(event_name='purchase', ecommerce.purchase_revenue, null)) as purchase_revenue,
+    
+    -- Count the number of page view events
+    countif(event_name='page_view') as page_view,
+    
+    -- Count the number of add to cart events
+    countif(event_name='add_to_cart') as add_to_cart,
+    
+    -- Count the number of begin checkout events
+    countif(event_name='begin_checkout') as begin_checkout,
+    
+    -- Count the number of purchase events
+    countif(event_name='purchase') as purchase
+  -- From the GA4 eCommerce dataset in BigQuery
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*` 
+  -- Filter data between the specified start and end dates
+  where parse_date('%Y%m%d', event_date) between start_date and end_date
+  -- Group the data by device category for breakdown
+  group by device_category
+)
+
+-- Select relevant KPIs and metrics for analysis
+select
+    -- Device category for further segmentation
+    device_category,
+    
+    -- Total number of 'add to cart' actions
+    add_to_cart,
+    
+    -- Total number of 'begin checkout' actions
+    begin_checkout,
+     
+   -- Total number of 'purchase' actions
+    purchase,
+    
+    -- Calculate average order value (purchase revenue per user)
+    round(safe_divide(purchase_revenue, purchase_users), 2) as avg_order_value,
+    
+    -- Calculate cart abandonment rate
+    round(safe_divide((add_to_cart - purchase), add_to_cart) * 100, 2) as cart_abandonment_rate,
+    
+    -- Calculate checkout abandonment rate
+    round(safe_divide((begin_checkout - purchase), begin_checkout) * 100, 2) as checkout_abandonment_rate
+from flat_data;
+```
+
+#### Query Result: 
+
+![image](https://github.com/user-attachments/assets/9b65df47-a606-4e2b-a395-c8188ac0497a)
 
 
+#### Summary Insight:
 
+I) Mobile users have the highest add-to-cart (23,223) and begin-checkout (15,696) counts, but their cart abandonment rate (89.86%) and checkout abandonment rate (85.0%) are also high. Optimizing the mobile checkout process and offering incentives could help reduce abandonment and increase conversions.
+
+II) Desktop users show strong engagement with 34,047 add-to-carts and 22,272 begins-checkout, but their cart abandonment rate (90.52%) and checkout abandonment rate (85.52%) remain concerning. Focusing on improving desktop checkout usability could help retain more users through the purchase stage.
+
+III) Tablet users have lower engagement with 1,273 add-to-carts and 789 begins-checkout, but their abandonment rates are slightly higher than mobile (cart abandonment: 91.28%, checkout abandonment: 85.93%). Improving the tablet experience and addressing potential usability issues could enhance conversions.
+
+
+### SQL Query 5: ✅ Analyzing Conversion and Abandonment Rates by Traffic Medium 
+
+This SQL query calculates key conversion and abandonment metrics for different traffic sources in an e-commerce context, helping businesses understand how users interact with the website across different stages of the sales funnel (from page views to purchases).
+
+#### SQL Code:
+```
+-- declare start and end dates for the analysis period
+DECLARE start_date DATE DEFAULT '2020-11-01';
+DECLARE end_date DATE DEFAULT '2021-01-31';
+
+-- create a dataset to select relevant event data for the analysis
+WITH dataset AS (
+  SELECT 
+      user_pseudo_id,  -- user identifier for each event
+      event_name,  -- the name of the event (e.g., page view, add to cart)
+      PARSE_DATE('%Y%m%d', event_date) AS event_date,  -- converts the event date into DATE format
+      traffic_source.medium AS traffic_medium  -- the medium of the traffic (e.g., organic, paid)
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  WHERE event_name IN ('page_view', 'view_item', 'add_to_cart', 'begin_checkout', 'purchase')  -- filter for relevant events
+    AND _TABLE_SUFFIX BETWEEN FORMAT_DATE('%Y%m%d', start_date) AND FORMAT_DATE('%Y%m%d', end_date)  -- filter by the date range
+),
+
+-- create a funnel with counts for each event for each user and traffic medium
+funnel AS (
+  SELECT
+      user_pseudo_id,  -- user identifier
+      traffic_medium,  -- traffic medium for each user
+      countif(event_name='page_view') AS page_view,  -- count of page views
+      countif(event_name='view_item') AS view_item,  -- count of view item events
+      countif(event_name='add_to_cart') AS add_to_cart,  -- count of add to cart events
+      countif(event_name='begin_checkout') AS begin_checkout,  -- count of begin checkout events
+      countif(event_name='purchase') AS purchase  -- count of purchase events
+  FROM dataset
+  GROUP BY user_pseudo_id, traffic_medium  -- group by user and traffic medium
+),
+
+-- aggregate the funnel data by traffic medium
+aggregated_funnel AS (
+  SELECT
+      traffic_medium,  -- traffic medium
+      COUNT(DISTINCT user_pseudo_id) AS total_user_count,  -- total number of unique users
+      SUM(page_view) AS total_page_view_count,  -- total number of page views
+      SUM(view_item) AS total_view_item_count,  -- total number of view item events
+      SUM(add_to_cart) AS total_add_to_cart_count,  -- total number of add to cart events
+      SUM(begin_checkout) AS total_begin_checkout_count,  -- total number of begin checkout events
+      SUM(purchase) AS total_purchase_count  -- total number of purchase events
+  FROM funnel
+  GROUP BY traffic_medium  -- group by traffic medium
+)
+
+-- select and calculate the relevant metrics for the final output
+SELECT
+    traffic_medium,  -- traffic medium for the aggregated data
+    total_user_count,  -- total number of users
+    total_view_item_count,  -- total number of view item events
+    total_add_to_cart_count,  -- total number of add to cart events
+    total_begin_checkout_count,  -- total number of begin checkout events
+    total_purchase_count,  -- total number of purchases
+    ROUND(SAFE_DIVIDE((total_add_to_cart_count - total_purchase_count), total_add_to_cart_count) * 100, 2) AS cart_abandonment_rate,  -- calculate cart abandonment rate
+    ROUND(SAFE_DIVIDE((total_begin_checkout_count - total_purchase_count), total_begin_checkout_count) * 100, 2) AS checkout_abandonment_rate,  -- calculate checkout abandonment rate
+    ROUND(SAFE_DIVIDE(total_purchase_count, total_user_count) * 100, 2) AS conversion_rate  -- calculate conversion rate
+FROM aggregated_funnel
+ORDER BY total_user_count DESC, conversion_rate ASC;  -- order by the number of users and conversion rate;
+```
+
+#### Query Result: 
+
+![image](https://github.com/user-attachments/assets/1b423d11-ce45-4cdb-a669-02d40d9696bf)
+
+#### Summary Insight:
+
+I) Organic traffic has the highest user count (109,368) but also the highest cart abandonment rate (91.07%) and checkout abandonment rate (86.27%). Focusing on streamlining the checkout process and offering incentives could help reduce abandonment and improve conversions.
+
+II) (none) traffic, likely direct or session-based, has a slightly better conversion rate (1.72%) than organic (1.44%) but still shows high abandonment (cart: 90.64%, checkout: 85.45%). Improving the user experience and incentivizing purchases could lead to higher conversion rates for this channel.
+
+III) Referral traffic has the highest conversion rate (2.46%) and relatively low abandonment rates (cart: 89.41%, checkout: 84.6%). Leveraging this traffic source by improving the landing pages and ensuring a seamless checkout could further capitalize on this strong performance.
+
+IV) CPC (paid) traffic has the lowest conversion rate (1.09%) and the highest cart abandonment rate (91.87%). Optimizing ad targeting and landing page relevance could improve engagement and reduce abandonment in this channel.
+
+V) Data deleted traffic shows the highest conversion rate (6.05%) with a relatively lower checkout abandonment rate (82.97%). This traffic is performing well, and further analysis could help replicate its success in other channels.
+
+
+### SQL Query 5: ✅ Analyzing Conversion and Abandonment Rates by Traffic Medium 
+
+This SQL query calculates key conversion and abandonment metrics for different traffic sources in an e-commerce context, helping businesses understand how users interact with the website across different stages of the sales funnel (from page views to purchases).
+
+#### SQL Code:
+```
+-- declare start and end dates for the analysis period
+DECLARE start_date DATE DEFAULT '2020-11-01';
+DECLARE end_date DATE DEFAULT '2021-01-31';
+
+-- create a dataset to select relevant event data for the analysis
+WITH dataset AS (
+  SELECT 
+      user_pseudo_id,  -- user identifier for each event
+      event_name,  -- the name of the event (e.g., page view, add to cart)
+      PARSE_DATE('%Y%m%d', event_date) AS event_date,  -- converts the event date into DATE format
+      traffic_source.medium AS traffic_medium  -- the medium of the traffic (e.g., organic, paid)
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  WHERE event_name IN ('page_view', 'view_item', 'add_to_cart', 'begin_checkout', 'purchase')  -- filter for relevant events
+    AND _TABLE_SUFFIX BETWEEN FORMAT_DATE('%Y%m%d', start_date) AND FORMAT_DATE('%Y%m%d', end_date)  -- filter by the date range
+),
+
+-- create a funnel with counts for each event for each user and traffic medium
+funnel AS (
+  SELECT
+      user_pseudo_id,  -- user identifier
+      traffic_medium,  -- traffic medium for each user
+      countif(event_name='page_view') AS page_view,  -- count of page views
+      countif(event_name='view_item') AS view_item,  -- count of view item events
+      countif(event_name='add_to_cart') AS add_to_cart,  -- count of add to cart events
+      countif(event_name='begin_checkout') AS begin_checkout,  -- count of begin checkout events
+      countif(event_name='purchase') AS purchase  -- count of purchase events
+  FROM dataset
+  GROUP BY user_pseudo_id, traffic_medium  -- group by user and traffic medium
+),
+
+-- aggregate the funnel data by traffic medium
+aggregated_funnel AS (
+  SELECT
+      traffic_medium,  -- traffic medium
+      COUNT(DISTINCT user_pseudo_id) AS total_user_count,  -- total number of unique users
+      SUM(page_view) AS total_page_view_count,  -- total number of page views
+      SUM(view_item) AS total_view_item_count,  -- total number of view item events
+      SUM(add_to_cart) AS total_add_to_cart_count,  -- total number of add to cart events
+      SUM(begin_checkout) AS total_begin_checkout_count,  -- total number of begin checkout events
+      SUM(purchase) AS total_purchase_count  -- total number of purchase events
+  FROM funnel
+  GROUP BY traffic_medium  -- group by traffic medium
+)
+
+-- select and calculate the relevant metrics for the final output
+SELECT
+    traffic_medium,  -- traffic medium for the aggregated data
+    total_user_count,  -- total number of users
+    total_view_item_count,  -- total number of view item events
+    total_add_to_cart_count,  -- total number of add to cart events
+    total_begin_checkout_count,  -- total number of begin checkout events
+    total_purchase_count,  -- total number of purchases
+    ROUND(SAFE_DIVIDE((total_add_to_cart_count - total_purchase_count), total_add_to_cart_count) * 100, 2) AS cart_abandonment_rate,  -- calculate cart abandonment rate
+    ROUND(SAFE_DIVIDE((total_begin_checkout_count - total_purchase_count), total_begin_checkout_count) * 100, 2) AS checkout_abandonment_rate,  -- calculate checkout abandonment rate
+    ROUND(SAFE_DIVIDE(total_purchase_count, total_user_count) * 100, 2) AS conversion_rate  -- calculate conversion rate
+FROM aggregated_funnel
+ORDER BY total_user_count DESC, conversion_rate ASC;  -- order by the number of users and conversion rate;
+```
+
+#### Query Result: 
+
+![image](https://github.com/user-attachments/assets/1b423d11-ce45-4cdb-a669-02d40d9696bf)
+
+#### Summary Insight:
+
+I) Organic traffic has the highest user count (109,368) but also the highest cart abandonment rate (91.07%) and checkout abandonment rate (86.27%). Focusing on streamlining the checkout process and offering incentives could help reduce abandonment and improve conversions.
+
+II) (none) traffic, likely direct or session-based, has a slightly better conversion rate (1.72%) than organic (1.44%) but still shows high abandonment (cart: 90.64%, checkout: 85.45%). Improving the user experience and incentivizing purchases could lead to higher conversion rates for this channel.
+
+III) Referral traffic has the highest conversion rate (2.46%) and relatively low abandonment rates (cart: 89.41%, checkout: 84.6%). Leveraging this traffic source by improving the landing pages and ensuring a seamless checkout could further capitalize on this strong performance.
+
+IV) CPC (paid) traffic has the lowest conversion rate (1.09%) and the highest cart abandonment rate (91.87%). Optimizing ad targeting and landing page relevance could improve engagement and reduce abandonment in this channel.
+
+V) Data deleted traffic shows the highest conversion rate (6.05%) with a relatively lower checkout abandonment rate (82.97%). This traffic is performing well, and further analysis could help replicate its success in other channels.
 
 
 
