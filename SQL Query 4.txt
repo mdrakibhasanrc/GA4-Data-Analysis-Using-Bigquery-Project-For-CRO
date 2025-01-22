@@ -1,0 +1,61 @@
+
+-- Declare start and end date variables for the desired analysis period
+declare start_date date default '2020-11-01';  
+declare end_date date default '2021-01-31';
+
+-- Creating a common table expression (CTE) to aggregate data
+with flat_data as (
+  SELECT 
+    -- Device category: distinguishes the device type (e.g., mobile, tablet, desktop)
+    device.category as device_category,
+    
+    -- Count distinct users who made a purchase event
+    count(distinct if(event_name='purchase', user_pseudo_id, null)) as purchase_users,
+    
+    -- Sum of purchase revenue for the 'purchase' event
+    sum(if(event_name='purchase', ecommerce.purchase_revenue, null)) as purchase_revenue,
+    
+    -- Count the number of page view events
+    countif(event_name='page_view') as page_view,
+    
+    -- Count the number of add to cart events
+    countif(event_name='add_to_cart') as add_to_cart,
+    
+    -- Count the number of begin checkout events
+    countif(event_name='begin_checkout') as begin_checkout,
+    
+    -- Count the number of purchase events
+    countif(event_name='purchase') as purchase
+  -- From the GA4 eCommerce dataset in BigQuery
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*` 
+  -- Filter data between the specified start and end dates
+  where parse_date('%Y%m%d', event_date) between start_date and end_date
+  -- Group the data by device category for breakdown
+  group by device_category
+)
+
+-- Select relevant KPIs and metrics for analysis
+select
+    -- Device category for further segmentation
+    device_category,
+    
+    -- Total number of 'add to cart' actions
+    add_to_cart,
+    
+    -- Total number of 'begin checkout' actions
+    begin_checkout,
+     
+   -- Total number of 'purchase' actions
+    purchase,
+    
+    -- Calculate average order value (purchase revenue per user)
+    round(safe_divide(purchase_revenue, purchase_users), 2) as avg_order_value,
+    
+    -- Calculate cart abandonment rate
+    round(safe_divide((add_to_cart - purchase), add_to_cart) * 100, 2) as cart_abandonment_rate,
+    
+    -- Calculate checkout abandonment rate
+    round(safe_divide((begin_checkout - purchase), begin_checkout) * 100, 2) as checkout_abandonment_rate
+from flat_data;
+
+
