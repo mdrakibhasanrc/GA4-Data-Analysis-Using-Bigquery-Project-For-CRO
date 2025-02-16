@@ -1,4 +1,4 @@
-## GA4 Data Analysis Using Bigquery Project For CRO
+## Data Analysis using Ga4 & Bigquery
 
 ## Introduction
 
