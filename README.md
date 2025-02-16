@@ -14,7 +14,6 @@ iii) Provide actionable, data-driven recommendations.
 
 iv) Build dashboards to monitor CRO progress.
 
-By integrating GA4 with BigQuery, this project transforms raw data into strategic insights, empowering eCommerce businesses to enhance performance and boost conversions.
 
 ## Data Collection & Setup
 
