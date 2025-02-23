@@ -1,4 +1,4 @@
-## Data Analysis using Ga4 & Bigquery
+## Numerical Data Analysis using Ga4 & Bigquery
 
 ## Introduction
 
