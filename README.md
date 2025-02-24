@@ -98,7 +98,94 @@ II) A low conversion rate (2.11%) suggests optimization opportunities like impro
 III) With an Average Order Value of $63.63, strategies such as cross-selling and bundling can help boost revenue further.
 
 
-### SQL Query 2:  ✅ Analyzing Conversion Funnel Data for eCommerce Optimization
+### SQL Query 2: ✅ Identifying Website Performance Metrics
+
+#### SQL Code:
+```
+with date_range as (
+  select date '2020-11-01' as start_date, date '2021-01-31' as end_date
+),
+
+revenue_data as (
+  select  
+     user_pseudo_id,
+     sum(ecommerce.purchase_revenue) as total_revenue
+  from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`, date_range
+  where event_name = 'purchase'
+    and parse_date('%Y%m%d', event_date) between date_range.start_date and date_range.end_date
+  group by user_pseudo_id
+),
+
+visitor_data as (
+  select
+     user_pseudo_id,
+     count(distinct (select value.int_value from unnest(event_params) where key = 'ga_session_id')) as sessions,
+     max(coalesce((select value.string_value from unnest(event_params) where key = 'session_engaged'), '0')) as is_engaged
+  from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`, date_range
+  where parse_date('%Y%m%d', event_date) between date_range.start_date and date_range.end_date
+  group by user_pseudo_id
+),
+
+session_time as (
+  select
+     user_pseudo_id,
+     (select value.int_value from unnest(event_params) where key = 'ga_session_id') as ga_session_id,
+     min(event_timestamp) / 1000000 as session_start_time,
+     max(event_timestamp) / 1000000 as session_end_time
+  from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`, date_range
+  where parse_date('%Y%m%d', event_date) between date_range.start_date and date_range.end_date
+  group by user_pseudo_id, ga_session_id
+),
+
+session_duration as (
+  select
+     user_pseudo_id,
+     avg(session_end_time - session_start_time) as avg_session_duration_seconds
+  from session_time
+  group by user_pseudo_id
+),
+
+combined_data as (
+  select
+     count(distinct v.user_pseudo_id) as total_users,
+     sum(v.sessions) as total_sessions,
+     countif(v.is_engaged = '0') as bounced,
+     sum(ifnull(r.total_revenue, 0)) as total_revenue,
+     avg(s.avg_session_duration_seconds) as avg_session_duration_seconds
+  from visitor_data v
+  left join revenue_data r
+    on v.user_pseudo_id = r.user_pseudo_id
+  left join session_duration s
+    on v.user_pseudo_id = s.user_pseudo_id
+)
+
+select
+   total_users,
+   total_revenue,
+   total_sessions,
+   bounced,
+   avg_session_duration_seconds,
+   round(safe_divide(total_revenue, total_users), 2) as revenue_per_visitor,
+   round(safe_divide(bounced, total_sessions) * 100, 2) as bounce_rate
+from combined_data;
+
+```
+
+#### Query Result: 
+
+![image](https://github.com/user-attachments/assets/06276bf8-330a-486f-9c47-5e4f5fd1fadd)
+
+#### Summary & Insight:
+
+i) Optimize Landing Pages & RPV: Reduce bounce rate (20.68%) and increase revenue per visitor ($1.34) by improving landing page relevance, visuals, speed, and offering upsells/cross-sells.
+
+ii) Focus on CRO: Leverage high traffic (360,129 sessions) and revenue ($362,165) with targeted promotions and discounts to improve conversion rates.
+
+iii) Boost Engagement: Increase average session duration (160.30 seconds) with personalized content and product recommendations to enhance user interaction and reduce bounce rates.
+
+
+
+### SQL Query 3:  ✅ Analyzing Conversion Funnel Data for eCommerce Optimization
 
 This analysis focuses on evaluating key stages in the conversion funnel of an eCommerce store, helping to identify where users drop off and why. By tracking user behavior from arrival to checkout, businesses can uncover areas for improvement in the user journey.
 
@@ -225,7 +312,7 @@ II) The purchase rate is 47.22%, with notable drop-offs after beginning checkout
 III) With an add-to-cart rate of 19.92% and a begin-checkout rate of 43.0%, optimizing product pages and emphasizing scarcity or urgency could encourage more users to move deeper into the funnel.
 
 
-### SQL Query 3: ✅ Device Category-Based Conversion Analysis
+### SQL Query 4: ✅ Device Category-Based Conversion Analysis
 
 This SQL query analyzes user engagement and conversion metrics based on device categories for a specified date range. It calculates key performance indicators (KPIs) like total users, purchases, item quantities, purchase revenue, and conversion rate for different device categories.
 
@@ -280,7 +367,7 @@ II) Desktop users generate the highest revenue ($208,815) but have a slightly lo
 III) Tablet users have the lowest conversion rate (1.78%) and revenue ($6,582), suggesting potential challenges in usability or relevance. Focused improvements for tablet interfaces could help unlock untapped potential in this segment.
 
 
-### SQL Query 4: ✅  Device Category Based: Average Order Value , Cart and Checkout Abandonment Analysis
+### SQL Query 5: ✅  Device Category Based: Average Order Value , Cart and Checkout Abandonment Analysis
 
 This query helps to analyze key ecommerce metrics, such as cart abandonment rate, checkout abandonment rate, and average order value by device category. It aggregates data from the GA4 eCommerce dataset to provide insights on how users engage with the shopping funnel from page view to purchase.
 
@@ -360,7 +447,7 @@ II) Desktop users show strong engagement with 34,047 add-to-carts and 22,272 beg
 III) Tablet users have lower engagement with 1,273 add-to-carts and 789 begins-checkout, but their abandonment rates are slightly higher than mobile (cart abandonment: 91.28%, checkout abandonment: 85.93%). Improving the tablet experience and addressing potential usability issues could enhance conversions.
 
 
-### SQL Query 5: ✅ Analyzing Conversion and Abandonment Rates by Traffic Medium 
+### SQL Query 6: ✅ Analyzing Conversion and Abandonment Rates by Traffic Medium 
 
 This SQL query calculates key conversion and abandonment metrics for different traffic sources in an e-commerce context, helping businesses understand how users interact with the website across different stages of the sales funnel (from page views to purchases).
 
@@ -440,92 +527,4 @@ III) Referral traffic has the highest conversion rate (2.46%) and relatively low
 IV) CPC (paid) traffic has the lowest conversion rate (1.09%) and the highest cart abandonment rate (91.87%). Optimizing ad targeting and landing page relevance could improve engagement and reduce abandonment in this channel.
 
 V) Data deleted traffic shows the highest conversion rate (6.05%) with a relatively lower checkout abandonment rate (82.97%). This traffic is performing well, and further analysis could help replicate its success in other channels.
-
-
-### SQL Query 5: ✅ Analyzing Conversion and Abandonment Rates by Traffic Medium 
-
-This SQL query calculates key conversion and abandonment metrics for different traffic sources in an e-commerce context, helping businesses understand how users interact with the website across different stages of the sales funnel (from page views to purchases).
-
-#### SQL Code:
-```
--- declare start and end dates for the analysis period
-DECLARE start_date DATE DEFAULT '2020-11-01';
-DECLARE end_date DATE DEFAULT '2021-01-31';
-
--- create a dataset to select relevant event data for the analysis
-WITH dataset AS (
-  SELECT 
-      user_pseudo_id,  -- user identifier for each event
-      event_name,  -- the name of the event (e.g., page view, add to cart)
-      PARSE_DATE('%Y%m%d', event_date) AS event_date,  -- converts the event date into DATE format
-      traffic_source.medium AS traffic_medium  -- the medium of the traffic (e.g., organic, paid)
-  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-  WHERE event_name IN ('page_view', 'view_item', 'add_to_cart', 'begin_checkout', 'purchase')  -- filter for relevant events
-    AND _TABLE_SUFFIX BETWEEN FORMAT_DATE('%Y%m%d', start_date) AND FORMAT_DATE('%Y%m%d', end_date)  -- filter by the date range
-),
-
--- create a funnel with counts for each event for each user and traffic medium
-funnel AS (
-  SELECT
-      user_pseudo_id,  -- user identifier
-      traffic_medium,  -- traffic medium for each user
-      countif(event_name='page_view') AS page_view,  -- count of page views
-      countif(event_name='view_item') AS view_item,  -- count of view item events
-      countif(event_name='add_to_cart') AS add_to_cart,  -- count of add to cart events
-      countif(event_name='begin_checkout') AS begin_checkout,  -- count of begin checkout events
-      countif(event_name='purchase') AS purchase  -- count of purchase events
-  FROM dataset
-  GROUP BY user_pseudo_id, traffic_medium  -- group by user and traffic medium
-),
-
--- aggregate the funnel data by traffic medium
-aggregated_funnel AS (
-  SELECT
-      traffic_medium,  -- traffic medium
-      COUNT(DISTINCT user_pseudo_id) AS total_user_count,  -- total number of unique users
-      SUM(page_view) AS total_page_view_count,  -- total number of page views
-      SUM(view_item) AS total_view_item_count,  -- total number of view item events
-      SUM(add_to_cart) AS total_add_to_cart_count,  -- total number of add to cart events
-      SUM(begin_checkout) AS total_begin_checkout_count,  -- total number of begin checkout events
-      SUM(purchase) AS total_purchase_count  -- total number of purchase events
-  FROM funnel
-  GROUP BY traffic_medium  -- group by traffic medium
-)
-
--- select and calculate the relevant metrics for the final output
-SELECT
-    traffic_medium,  -- traffic medium for the aggregated data
-    total_user_count,  -- total number of users
-    total_view_item_count,  -- total number of view item events
-    total_add_to_cart_count,  -- total number of add to cart events
-    total_begin_checkout_count,  -- total number of begin checkout events
-    total_purchase_count,  -- total number of purchases
-    ROUND(SAFE_DIVIDE((total_add_to_cart_count - total_purchase_count), total_add_to_cart_count) * 100, 2) AS cart_abandonment_rate,  -- calculate cart abandonment rate
-    ROUND(SAFE_DIVIDE((total_begin_checkout_count - total_purchase_count), total_begin_checkout_count) * 100, 2) AS checkout_abandonment_rate,  -- calculate checkout abandonment rate
-    ROUND(SAFE_DIVIDE(total_purchase_count, total_user_count) * 100, 2) AS conversion_rate  -- calculate conversion rate
-FROM aggregated_funnel
-ORDER BY total_user_count DESC, conversion_rate ASC;  -- order by the number of users and conversion rate;
-```
-
-#### Query Result: 
-
-![image](https://github.com/user-attachments/assets/1b423d11-ce45-4cdb-a669-02d40d9696bf)
-
-#### Summary Insight:
-
-I) Organic traffic has the highest user count (109,368) but also the highest cart abandonment rate (91.07%) and checkout abandonment rate (86.27%). Focusing on streamlining the checkout process and offering incentives could help reduce abandonment and improve conversions.
-
-II) (none) traffic, likely direct or session-based, has a slightly better conversion rate (1.72%) than organic (1.44%) but still shows high abandonment (cart: 90.64%, checkout: 85.45%). Improving the user experience and incentivizing purchases could lead to higher conversion rates for this channel.
-
-III) Referral traffic has the highest conversion rate (2.46%) and relatively low abandonment rates (cart: 89.41%, checkout: 84.6%). Leveraging this traffic source by improving the landing pages and ensuring a seamless checkout could further capitalize on this strong performance.
-
-IV) CPC (paid) traffic has the lowest conversion rate (1.09%) and the highest cart abandonment rate (91.87%). Optimizing ad targeting and landing page relevance could improve engagement and reduce abandonment in this channel.
-
-V) Data deleted traffic shows the highest conversion rate (6.05%) with a relatively lower checkout abandonment rate (82.97%). This traffic is performing well, and further analysis could help replicate its success in other channels.
-
-
-
-
-
-
 
