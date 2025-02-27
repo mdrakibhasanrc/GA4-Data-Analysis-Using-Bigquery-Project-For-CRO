@@ -528,3 +528,64 @@ IV) CPC (paid) traffic has the lowest conversion rate (1.09%) and the highest ca
 
 V) Data deleted traffic shows the highest conversion rate (6.05%) with a relatively lower checkout abandonment rate (82.97%). This traffic is performing well, and further analysis could help replicate its success in other channels.
 
+
+
+
+### SQL Query 6: ✅ Analyzing New User and Returning Users Report
+
+#### SQL Code:
+```
+with first_session as (
+  select 
+    user_pseudo_id,
+    min(
+      case 
+        when (select value.int_value from unnest(event_params) where key = 'ga_session_number') = 1 
+        then 'new_visitors' 
+        else 'return_visitors' 
+      end
+    ) as user_type
+  from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  where parse_date('%Y%m%d', event_date) between date '2020-11-01' and date '2021-01-31'
+  group by user_pseudo_id
+),
+
+user_session as (
+  select 
+    fs.user_pseudo_id,
+    fs.user_type,
+    countif(e.event_name = 'add_to_cart') as add_to_carts,
+    countif(e.event_name = 'begin_checkout') as begin_checkout,
+    countif(e.event_name = 'purchase') as purchase
+  from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*` e
+  join first_session fs on e.user_pseudo_id = fs.user_pseudo_id
+  where parse_date('%Y%m%d', e.event_date) between date '2020-11-01' and date '2021-01-31'
+  group by fs.user_pseudo_id, fs.user_type
+)
+
+select
+  user_type,
+  count(distinct user_pseudo_id) as total_users,
+  round(safe_divide((sum(add_to_carts) - sum(purchase)), sum(add_to_carts)) * 100, 2) as cart_abandonment_rate,
+  round(safe_divide((sum(begin_checkout) - sum(purchase)), sum(begin_checkout)) * 100, 2) as checkout_abandonment_rate,
+  round(safe_divide(sum(purchase), count(distinct user_pseudo_id)) * 100, 2) as conversion_rate
+from user_session
+group by user_type;
+
+```
+
+#### Query Result: 
+
+![image](https://github.com/user-attachments/assets/2d747122-c3e4-41ab-84e7-7fdc822b09dd)
+
+
+#### Summary Insight:
+
+I) New Visitors (261,148 users) have a high cart abandonment rate (91.26%) and checkout abandonment rate (86.61%), resulting in a low conversion rate (1.72%). Since they are unfamiliar with the store, improving trust signals (reviews, guarantees) and simplifying the checkout process could help boost conversions.
+
+II) Returning Visitors (9,006 users) show lower abandonment rates (cart: 83.19%, checkout: 76.86%) and a significantly higher conversion rate (13.26%). Engaging them with personalized offers, loyalty programs, and remarketing strategies could further improve their conversion potential.
+
+
+
+
+
