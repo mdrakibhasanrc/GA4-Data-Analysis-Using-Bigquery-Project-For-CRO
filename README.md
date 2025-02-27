@@ -191,125 +191,87 @@ This analysis focuses on evaluating key stages in the conversion funnel of an eC
 
 #### SQL Code:
 ```
--- step 1: create a base dataset containing events filtered by event name and date range
-with dataset as (
-  select 
-      user_pseudo_id,
-      event_name,
-      parse_date('%Y%m%d', event_date) as event_date
-  from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*` 
-  where event_name in ('view_item', 'add_to_cart', 'begin_checkout', 'purchase')  -- filtering relevant events
-    and event_date between '2020-11-01' and '2021-12-31'  -- filtering events within the date range
+DECLARE start_date DATE DEFAULT '2020-11-01';
+DECLARE end_date DATE DEFAULT '2021-01-31';
+
+WITH funnel_steps AS (
+    SELECT 
+        user_pseudo_id,
+        event_name,
+        event_timestamp
+    FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+    WHERE event_name IN ('view_item', 'add_to_cart', 'begin_checkout', 'purchase')
+      AND PARSE_DATE('%Y%m%d', _TABLE_SUFFIX) BETWEEN start_date AND end_date
 ),
 
--- step 2: extract data for 'view_item' event
-view_item as (
-  select
-      user_pseudo_id,
-      event_name,
-      event_date
-  from dataset
-  where event_name = 'view_item'  -- filter to only include 'view_item' events
+total_visitors AS (
+    SELECT DISTINCT user_pseudo_id 
+    FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+    WHERE PARSE_DATE('%Y%m%d', _TABLE_SUFFIX) BETWEEN start_date AND end_date
 ),
 
--- step 3: extract data for 'add_to_cart' event
-add_to_cart as (
-  select
-      user_pseudo_id,
-      event_name,
-      event_date
-  from dataset
-  where event_name = 'add_to_cart'  -- filter to only include 'add_to_cart' events
-),
-
--- step 4: extract data for 'begin_checkout' event
-begin_checkout as (
-  select
-      user_pseudo_id,
-      event_name,
-      event_date
-  from dataset
-  where event_name = 'begin_checkout'  -- filter to only include 'begin_checkout' events
-),
-
--- step 5: extract data for 'purchase' event
-purchase as (
-  select
-      user_pseudo_id,
-      event_name,
-      event_date
-  from dataset
-  where event_name = 'purchase'  -- filter to only include 'purchase' events
-),
-
--- step 6: create a funnel of events by joining the data from each stage (view_item -> add_to_cart -> begin_checkout -> purchase)
-funnel as (
-  select
-      vi.event_date,
-
-      count(distinct vi.user_pseudo_id) as view_item_count,  -- count unique users who viewed an item
-      count(distinct atc.user_pseudo_id) as add_to_cart_count,  -- count unique users who added to cart
-
-      count(distinct bc.user_pseudo_id) as begin_checkout_count,  -- count unique users who began checkout
-
-      count(distinct p.user_pseudo_id) as purchase_count  -- count unique users who completed a purchase
-
-  from view_item vi
-
-  left join add_to_cart atc on vi.user_pseudo_id = atc.user_pseudo_id and vi.event_date = atc.event_date  -- join 'view_item' with 'add_to_cart'
-
-  left join begin_checkout bc on atc.user_pseudo_id = bc.user_pseudo_id and atc.event_date = bc.event_date  -- join 'add_to_cart' with 'begin_checkout'
-
-  left join purchase p on bc.user_pseudo_id = p.user_pseudo_id and bc.event_date = p.event_date  -- join 'begin_checkout' with 'purchase'
-
-  group by vi.event_date  -- group by event date to get daily counts
+step_counts AS (
+    SELECT 'Total Visitors' AS step, COUNT(DISTINCT user_pseudo_id) AS users FROM total_visitors
+    UNION ALL
+    SELECT 'View Item', COUNT(DISTINCT user_pseudo_id) FROM funnel_steps WHERE event_name = 'view_item'
+    UNION ALL
+    SELECT 'Add to Cart', COUNT(DISTINCT user_pseudo_id) FROM funnel_steps WHERE event_name = 'add_to_cart'
+    UNION ALL
+    SELECT 'Checkout', COUNT(DISTINCT user_pseudo_id) FROM funnel_steps WHERE event_name = 'begin_checkout'
+    UNION ALL
+    SELECT 'Purchase', COUNT(DISTINCT user_pseudo_id) FROM funnel_steps WHERE event_name = 'purchase'
 )
 
--- step 7: calculate various funnel metrics such as drop-offs and rates for each stage of the funnel
+SELECT 
+    step,
+    users,
+    ROUND(SAFE_DIVIDE(users, LAG(users) OVER (ORDER BY 
+        CASE 
+            WHEN step = 'Total Visitors' THEN 1
+            WHEN step = 'View Item' THEN 2
+            WHEN step = 'Add to Cart' THEN 3
+            WHEN step = 'Checkout' THEN 4
+            WHEN step = 'Purchase' THEN 5
+        END
+    )), 2) AS conversion_rate,
+    ROUND(1 - SAFE_DIVIDE(users, LAG(users) OVER (ORDER BY 
+        CASE 
+            WHEN step = 'Total Visitors' THEN 1
+            WHEN step = 'View Item' THEN 2
+            WHEN step = 'Add to Cart' THEN 3
+            WHEN step = 'Checkout' THEN 4
+            WHEN step = 'Purchase' THEN 5
+        END
+    )), 2) AS abandonment_rate
+FROM step_counts
+ORDER BY 
+    CASE 
+        WHEN step = 'Total Visitors' THEN 1
+        WHEN step = 'View Item' THEN 2
+        WHEN step = 'Add to Cart' THEN 3
+        WHEN step = 'Checkout' THEN 4
+        WHEN step = 'Purchase' THEN 5
+    END;
 
-select
-   sum(view_item_count) as total_view_item_count,  -- total number of users who viewed an item
-
-   sum(add_to_cart_count) as total_add_to_cart_count,  -- total number of users who added to cart
-
-   sum(begin_checkout_count) as total_begin_checkout_count,  -- total number of users who began checkout
-
-   sum(purchase_count) as total_purchase_count,  -- total number of users who made a purchase
-
-   -- add to cart rate: percentage of users who added an item to the cart after viewing it
-   round(safe_divide(sum(add_to_cart_count), nullif(sum(view_item_count), 0)) * 100, 2) as add_to_cart_rate,
-
-   -- begin checkout rate: percentage of users who began checkout after adding to cart
-   round(safe_divide(sum(begin_checkout_count), nullif(sum(add_to_cart_count), 0)) * 100, 2) as begin_checkout_rate,
-
-   -- purchase rate: percentage of users who completed a purchase after beginning checkout
-   round(safe_divide(sum(purchase_count), nullif(sum(begin_checkout_count), 0)) * 100, 2) as purchase_rate,
-
-   -- drop-off after view item: percentage of users who viewed an item but didn't add it to the cart
-   round(safe_divide(sum(view_item_count) - sum(add_to_cart_count), nullif(sum(view_item_count), 0)) * 100, 2) as drop_off_after_view_item,
-
-   -- drop-off after add to cart: percentage of users who added to cart but didn't begin checkout
-   round(safe_divide(sum(add_to_cart_count) - sum(begin_checkout_count), nullif(sum(add_to_cart_count), 0)) * 100, 2) as drop_off_after_add_to_cart,
-
-   -- drop-off after begin checkout: percentage of users who began checkout but didn't purchase
-   round(safe_divide(sum(begin_checkout_count) - sum(purchase_count), nullif(sum(begin_checkout_count), 0)) * 100, 2) as drop_off_after_begin_checkout
-from funnel;
 ```
 
 #### Query Result: 
 
-![image](https://github.com/user-attachments/assets/75c3866e-2ea7-4082-b41a-44a9cc8589ed)
+![image](https://github.com/user-attachments/assets/ef495a0f-e4dd-4089-b474-fcd862dafb1d)
 
-![image](https://github.com/user-attachments/assets/09b27d0b-f206-4f72-808f-cfa836b370c0)
 
 
 #### Summary Insight:
 
-I) High drop-offs are observed after viewing items (80.08%) and adding to cart (57.0%), indicating friction in transitioning users through the purchase funnel. Streamlining navigation, providing clear CTAs, or highlighting value propositions could help reduce drop-offs.
+I) Total Visitors (270,154 users) show significant drop-offs across each step, with no conversion rate or abandonment rate at this stage. This highlights the need for engaging landing pages and entry point optimizations to retain users.
 
-II) The purchase rate is 47.22%, with notable drop-offs after beginning checkout (52.78%). Simplifying the checkout process and addressing user concerns like shipping costs or payment security could improve completion rates.
+II) View Item (61,252 users) have a conversion rate of 0.23% and a high abandonment rate of 0.77. Improving product page content, images, and clear call-to-action buttons could enhance interest and reduce abandonment.
 
-III) With an add-to-cart rate of 19.92% and a begin-checkout rate of 43.0%, optimizing product pages and emphasizing scarcity or urgency could encourage more users to move deeper into the funnel.
+III) Add to Cart (12,545 users) see a slight drop in conversion rate (0.2%) with a higher abandonment rate (0.8%). Consider streamlining the add-to-cart experience, showing quick product details, and offering incentives like free shipping to encourage progression.
+
+IV) Checkout (9,715 users) have a conversion rate of 0.77% and an abandonment rate of 0.23%, showing potential in the checkout stage. Focus on simplifying the checkout process, reducing friction points, and offering clear payment options.
+
+V) Purchase (4,419 users) demonstrate a conversion rate of 0.45% and a relatively high abandonment rate of 0.55%. Offering post-purchase incentives, such as related product recommendations or loyalty points, could boost final conversions.
 
 
 ### SQL Query 4: ✅ Device Category-Based Conversion Analysis
