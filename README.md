@@ -96,72 +96,78 @@ V) The revenue per visitor is relatively low (1.34), suggesting that there may b
 
 #### SQL Code:
 ```
-with date_range as (
-  select date '2020-11-01' as start_date, date '2021-01-31' as end_date
+WITH date_range AS (
+  SELECT DATE '2020-11-01' AS start_date, DATE '2021-01-31' AS end_date
 ),
 
-revenue_data as (
-  select  
+revenue_data AS (
+  SELECT  
      user_pseudo_id,
-     sum(ecommerce.purchase_revenue) as total_revenue
-  from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`, date_range
-  where event_name = 'purchase'
-    and parse_date('%Y%m%d', event_date) between date_range.start_date and date_range.end_date
-  group by user_pseudo_id
+     SUM(ecommerce.purchase_revenue) AS total_revenue
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  WHERE event_name = 'purchase'
+    AND PARSE_DATE('%Y%m%d', event_date) BETWEEN (SELECT start_date FROM date_range) 
+                                             AND (SELECT end_date FROM date_range)
+  GROUP BY user_pseudo_id
 ),
 
-visitor_data as (
-  select
+visitor_data AS (
+  SELECT
      user_pseudo_id,
-     count(distinct (select value.int_value from unnest(event_params) where key = 'ga_session_id')) as sessions,
-     max(coalesce((select value.string_value from unnest(event_params) where key = 'session_engaged'), '0')) as is_engaged
-  from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`, date_range
-  where parse_date('%Y%m%d', event_date) between date_range.start_date and date_range.end_date
-  group by user_pseudo_id
+     COUNT(DISTINCT (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id')) AS sessions,
+     COUNT(DISTINCT CASE 
+        WHEN (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'session_engaged') = '1' 
+        THEN (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') 
+     END) AS engaged_sessions
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  WHERE PARSE_DATE('%Y%m%d', event_date) BETWEEN (SELECT start_date FROM date_range) 
+                                             AND (SELECT end_date FROM date_range)
+  GROUP BY user_pseudo_id
 ),
 
-session_time as (
-  select
+session_time AS (
+  SELECT
      user_pseudo_id,
-     (select value.int_value from unnest(event_params) where key = 'ga_session_id') as ga_session_id,
-     min(event_timestamp) / 1000000 as session_start_time,
-     max(event_timestamp) / 1000000 as session_end_time
-  from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`, date_range
-  where parse_date('%Y%m%d', event_date) between date_range.start_date and date_range.end_date
-  group by user_pseudo_id, ga_session_id
+     (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS ga_session_id,
+     MIN(event_timestamp) / 1000000 AS session_start_time,
+     MAX(event_timestamp) / 1000000 AS session_end_time
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  WHERE PARSE_DATE('%Y%m%d', event_date) BETWEEN (SELECT start_date FROM date_range) 
+                                             AND (SELECT end_date FROM date_range)
+  GROUP BY user_pseudo_id, ga_session_id
 ),
 
-session_duration as (
-  select
+session_duration AS (
+  SELECT
      user_pseudo_id,
-     avg(session_end_time - session_start_time) as avg_session_duration_seconds
-  from session_time
-  group by user_pseudo_id
+     AVG(session_end_time - session_start_time) AS avg_session_duration_seconds
+  FROM session_time
+  GROUP BY user_pseudo_id
 ),
 
-combined_data as (
-  select
-     count(distinct v.user_pseudo_id) as total_users,
-     sum(v.sessions) as total_sessions,
-     countif(v.is_engaged = '0') as bounced,
-     sum(ifnull(r.total_revenue, 0)) as total_revenue,
-     avg(s.avg_session_duration_seconds) as avg_session_duration_seconds
-  from visitor_data v
-  left join revenue_data r
-    on v.user_pseudo_id = r.user_pseudo_id
-  left join session_duration s
-    on v.user_pseudo_id = s.user_pseudo_id
+combined_data AS (
+  SELECT
+     COUNT(DISTINCT v.user_pseudo_id) AS total_users,
+     SUM(v.sessions) AS total_sessions,
+     GREATEST(SUM(v.sessions) - SUM(v.engaged_sessions), 0) AS bounced,  -- Ensure bounced is not negative
+     SUM(IFNULL(r.total_revenue, 0)) AS total_revenue,
+     AVG(s.avg_session_duration_seconds) AS avg_session_duration_seconds
+  FROM visitor_data v
+  LEFT JOIN revenue_data r
+    ON v.user_pseudo_id = r.user_pseudo_id
+  LEFT JOIN session_duration s
+    ON v.user_pseudo_id = s.user_pseudo_id
 )
 
-select
+SELECT
    total_users,
    total_revenue,
    total_sessions,
    bounced,
    avg_session_duration_seconds,
-   round(safe_divide(total_revenue, total_users), 2) as revenue_per_visitor,
-   round(safe_divide(bounced, total_sessions) * 100, 2) as bounce_rate
-from combined_data;
+   ROUND(SAFE_DIVIDE(total_revenue, total_users), 2) AS revenue_per_visitor,
+   ROUND(SAFE_DIVIDE(bounced, NULLIF(total_sessions, 0)) * 100, 2) AS bounce_rate  -- Fixed bounce rate calculation
+FROM combined_data;
 
 ```
 
