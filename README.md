@@ -39,63 +39,57 @@ E-commerce Metrics Analysis for CRO Optimization focuses on evaluating key perfo
 declare start_date date default '2020-11-01';  
 declare end_date date default '2021-01-31';
 
--- Create a temporary view (CTE) named 'flat_data' for aggregating the data
-with flat_data as (
-  -- Count distinct users to calculate the total unique users
-  SELECT 
-    count(distinct user_pseudo_id) as total_user,
-
-    -- Count purchases (event_name='purchase') to calculate the total number of purchases
-    countif(event_name='purchase') total_purchase,
-
-    -- Sum the purchase revenue for 'purchase' events to calculate the total revenue
-    sum(if(event_name='purchase', ecommerce.purchase_revenue, null)) as total_purchase_revenue,
-
-    -- Sum the total quantity of items sold for 'purchase' events to track the number of items sold
-    sum(if (event_name='purchase', ecommerce.total_item_quantity, null)) as total_item_quantity_sold
-  -- Define the dataset to pull data from
-  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-  
-  -- Filter the data based on the date range between start_date and end_date
+-- Create a temporary dataset to calculate key eCommerce metrics
+with ecommerce_data as (
+  select
+    -- Count unique users
+    count(distinct user_pseudo_id) as total_users,
+    -- Count total purchases
+    countif(event_name = 'purchase') as total_purchases,
+    -- Sum the total number of items sold
+    sum(if(event_name = 'purchase', ecommerce.total_item_quantity, null)) as total_item_quantity_sold,
+    -- Sum the total revenue from purchases
+    sum(if(event_name = 'purchase', ecommerce.purchase_revenue, null)) as total_purchase_revenue,
+    -- Count total 'add to cart' events
+    countif(event_name = 'add_to_cart') as total_add_to_cart,
+    -- Count total 'begin checkout' events
+    countif(event_name = 'begin_checkout') as total_checkouts
+  from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
   where parse_date('%Y%m%d', event_date) between start_date and end_date
 )
 
--- Select the calculated metrics from the 'flat_data' CTE
+-- Calculate and display key performance indicators
 select
-    -- Total number of unique users
-    total_user,
+  total_users, -- Total number of unique users
+  total_purchases, -- Total number of completed purchases
+  total_item_quantity_sold, -- Total quantity of items sold
+  total_purchase_revenue, -- Total revenue generated from purchases
+  round(safe_divide(total_purchases, total_users) * 100, 2) as conversion_rate, -- Percentage of users who made a purchase
+  round(safe_divide(total_purchase_revenue, total_purchases), 2) as avg_order_value, -- Average revenue per order
+  round(safe_divide(total_purchase_revenue, total_users), 2) as revenue_per_visitor, -- Revenue generated per unique visitor
+  round(safe_divide((total_add_to_cart - total_purchases), total_add_to_cart) * 100, 2) as total_cart_abandonment, -- Percentage of users who added to cart but did not purchase
+  round(safe_divide(total_checkouts - total_purchases, total_checkouts) * 100, 2) as checkout_abandonment_rate -- Percentage of users who started checkout but did not complete purchase
+from ecommerce_data;
 
-    -- Total number of purchases
-    total_purchase,
-
-    -- Total number of items sold
-    total_item_quantity_sold,
-
-    -- Total purchase revenue
-    total_purchase_revenue,
-
-    -- Calculate the conversion rate as the percentage of users who made a purchase
-    round(safe_divide(total_purchase, total_user) * 100, 2) as conversion_rate,
-
-    -- Calculate the average order value (AOV) as total revenue per purchase
-    round(safe_divide(total_purchase_revenue, total_purchase), 2) as average_order_value
-
--- Retrieve the results from 'flat_data'
-from flat_data;
 ```
 
 #### Query Result: 
 
-![image](https://github.com/user-attachments/assets/0e1cb404-6bd2-4f20-9e00-e773f032d06f)
+![image](https://github.com/user-attachments/assets/2b00020c-6d5f-49c3-84cc-9e1cf99c93c4)
+
 
 #### Summary & Insight:
 
-I) High cart (90.28%) and checkout (85.31%) abandonment rates highlight significant friction in the purchase journey;
-streamlining the process or offering incentives could reduce drop-offs.
+I) The store recorded 5,692 total purchases, with 22,720 items sold, generating a total purchase revenue of $362,165. Despite strong sales volume, optimizing conversion rates, reducing cart abandonment, and increasing average order value could further enhance revenue growth.
 
-II) A low conversion rate (2.11%) suggests optimization opportunities like improving mobile usability, site speed, or checkout flow.
+II) High cart abandonment rate (90.28%) and checkout abandonment rate (85.31%) indicate significant friction in the purchase process, leading to lost sales opportunities. Streamlining the checkout and cart process or offering incentives might help.
 
-III) With an Average Order Value of $63.63, strategies such as cross-selling and bundling can help boost revenue further.
+III) The conversion rate is low (2.11%), pointing to potential optimization opportunities in areas such as mobile usability, site speed, and the checkout flow. Improving these factors could directly enhance the conversion rate and increase the number of purchases.
+
+IV) The Average Order Value (AOV) is $63.63, suggesting that there is room to boost revenue through strategies like cross-selling and bundling. Increasing AOV can help maximize the value of each customer and improve revenue without needing to increase traffic.
+
+V) The revenue per visitor is relatively low (1.34), suggesting that there may be untapped opportunities to improve the monetization of traffic. Enhancing site engagement, upselling, or offering better incentives could lead to higher revenue per visitor.
+
 
 
 ### SQL Query 2: ✅ Identifying Website Performance Metrics
