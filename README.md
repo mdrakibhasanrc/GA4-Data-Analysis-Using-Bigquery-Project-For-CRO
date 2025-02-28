@@ -173,7 +173,8 @@ FROM combined_data;
 
 #### Query Result: 
 
-![image](https://github.com/user-attachments/assets/06276bf8-330a-486f-9c47-5e4f5fd1fadd)
+![image](https://github.com/user-attachments/assets/dd76f7ce-787a-49d6-bad3-998f6aa99651)
+
 
 #### Summary & Insight:
 
